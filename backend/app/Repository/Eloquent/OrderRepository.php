@@ -22,6 +22,9 @@ use Illuminate\Support\Facades\DB;
 use HiEvents\DomainObjects\EventDomainObject;
 use HiEvents\DomainObjects\AccountDomainObject;
 
+/**
+ * @extends BaseRepository<OrderDomainObject>
+ */
 class OrderRepository extends BaseRepository implements OrderRepositoryInterface
 {
     public function findByEventId(int $eventId, QueryParamsDTO $params): LengthAwarePaginator
@@ -54,8 +57,8 @@ class OrderRepository extends BaseRepository implements OrderRepositoryInterface
         }
 
         $this->model = $this->model->orderBy(
-            column: $params->sort_by ?? OrderDomainObject::getDefaultSort(),
-            direction: $params->sort_direction ?? 'desc',
+            column: $this->validateSortColumn($params->sort_by, OrderDomainObject::class),
+            direction: $this->validateSortDirection($params->sort_direction, OrderDomainObject::class),
         );
 
         return $this->paginateWhere(
@@ -99,9 +102,10 @@ class OrderRepository extends BaseRepository implements OrderRepositoryInterface
             ->where('events.organizer_id', $organizerId)
             ->where('events.account_id', $accountId);
 
+        $sortBy = $this->validateSortColumn($params->sort_by, OrderDomainObject::class);
         $this->model = $this->model->orderBy(
-            column: $params->sort_by ? 'orders.' . $params->sort_by : 'orders.' . OrderDomainObject::getDefaultSort(),
-            direction: $params->sort_direction ?? 'desc',
+            column: 'orders.' . $sortBy,
+            direction: $this->validateSortDirection($params->sort_direction, OrderDomainObject::class),
         );
 
         return $this->paginateWhere(

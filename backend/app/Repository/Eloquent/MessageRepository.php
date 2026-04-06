@@ -12,6 +12,9 @@ use HiEvents\Repository\Interfaces\MessageRepositoryInterface;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Pagination\LengthAwarePaginator;
 
+/**
+ * @extends BaseRepository<MessageDomainObject>
+ */
 class MessageRepository extends BaseRepository implements MessageRepositoryInterface
 {
     protected function getModel(): string
@@ -38,9 +41,13 @@ class MessageRepository extends BaseRepository implements MessageRepositoryInter
             };
         }
 
+        if ($params->filter_fields && $params->filter_fields->isNotEmpty()) {
+            $this->applyFilterFields($params, MessageDomainObject::getAllowedFilterFields());
+        }
+
         $this->model = $this->model->orderBy(
-            $params->sort_by ?? MessageDomainObject::getDefaultSort(),
-            $params->sort_direction ?? 'desc',
+            $this->validateSortColumn($params->sort_by, MessageDomainObject::class),
+            $this->validateSortDirection($params->sort_direction, MessageDomainObject::class),
         );
 
         return $this->paginateWhere(

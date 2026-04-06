@@ -13,6 +13,9 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Collection;
 
+/**
+ * @extends BaseRepository<CheckInListDomainObject>
+ */
 class CheckInListRepository extends BaseRepository implements CheckInListRepositoryInterface
 {
     protected function getModel(): string
@@ -137,8 +140,8 @@ class CheckInListRepository extends BaseRepository implements CheckInListReposit
         }
 
         $this->model = $this->model->orderBy(
-            $params->sort_by ?? CheckInListDomainObject::getDefaultSort(),
-            $params->sort_direction ?? CheckInListDomainObject::getDefaultSortDirection(),
+            $this->validateSortColumn($params->sort_by, CheckInListDomainObject::class),
+            $this->validateSortDirection($params->sort_direction, CheckInListDomainObject::class),
         );
 
         return $this->paginateWhere(

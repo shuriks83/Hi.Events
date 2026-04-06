@@ -4,6 +4,7 @@ namespace HiEvents\Validators\Rules;
 
 use Closure;
 use Illuminate\Contracts\Validation\ValidationRule;
+use Illuminate\Support\Facades\Config;
 
 class NoInternalUrlRule implements ValidationRule
 {
@@ -50,6 +51,11 @@ class NoInternalUrlRule implements ValidationRule
         // Handle IPv6 addresses wrapped in brackets
         if (str_starts_with($host, '[') && str_ends_with($host, ']')) {
             $host = substr($host, 1, -1);
+        }
+
+        // Handle NoInternalIP/Host Exceptions
+        if ($this->isWhitelistedHost($host)) {
+            return;
         }
 
         if ($this->isBlockedHost($host)) {
@@ -100,14 +106,14 @@ class NoInternalUrlRule implements ValidationRule
 
     private function isPrivateIpAddress(string $host): bool
     {
-        $ip = gethostbyname($host);
+        $ip = $this->resolveAndNormalize($host);
 
-        if ($ip === $host && !filter_var($host, FILTER_VALIDATE_IP)) {
-            return false;
+        if ($ip === false) {
+            return true;
         }
 
         if (!filter_var($ip, FILTER_VALIDATE_IP)) {
-            return false;
+            return true;
         }
 
         if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE) === false) {
@@ -118,6 +124,43 @@ class NoInternalUrlRule implements ValidationRule
             return true;
         }
 
+        return false;
+    }
+
+    private function resolveAndNormalize(string $host): string|false
+    {
+        if (filter_var($host, FILTER_VALIDATE_IP, FILTER_FLAG_IPV6)) {
+            $binary = inet_pton($host);
+            if ($binary !== false && strlen($binary) === 16) {
+                $prefix = substr($binary, 0, 12);
+                if ($prefix === "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xff\xff") {
+                    return inet_ntop(substr($binary, 12));
+                }
+            }
+            return $host;
+        }
+
+        if (filter_var($host, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
+            return $host;
+        }
+
+        $ip = gethostbyname($host);
+        if ($ip === $host) {
+            return false;
+        }
+
+        return $ip;
+    }
+
+    private function isWhitelistedHost(string $host): bool
+    {
+        $whitelistedHosts = Config::string('app.allowed_internal_webhook_hosts');
+        if (!empty($whitelistedHosts)) {
+            $allowedList = array_filter(array_map('trim', explode(',', $whitelistedHosts)));
+            if (in_array($host, $allowedList) || in_array(gethostbyname($host), $allowedList)) {
+                return true;
+            }
+        }
         return false;
     }
 }

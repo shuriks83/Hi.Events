@@ -18,6 +18,9 @@ use HiEvents\Repository\Interfaces\EventRepositoryInterface;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Pagination\LengthAwarePaginator;
 
+/**
+ * @extends BaseRepository<EventDomainObject>
+ */
 class EventRepository extends BaseRepository implements EventRepositoryInterface
 {
     protected function getModel(): string
@@ -78,8 +81,8 @@ class EventRepository extends BaseRepository implements EventRepositoryInterface
         }
 
         $this->model = $this->model->orderBy(
-            $params->sort_by ?? EventDomainObject::getDefaultSort(),
-            $params->sort_direction ?? EventDomainObject::getDefaultSortDirection(),
+            $this->validateSortColumn($params->sort_by, EventDomainObject::class),
+            $this->validateSortDirection($params->sort_direction, EventDomainObject::class),
         );
 
         return $this->paginateWhere(
