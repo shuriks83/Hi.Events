@@ -2,9 +2,9 @@ import {useFormErrorResponseHandler} from "../../../hooks/useFormErrorResponseHa
 import {useNavigate} from "react-router";
 import {useGetAccount} from "../../../queries/useGetAccount.ts";
 import {Event, GenericModalProps, IdParam, Organizer} from "../../../types.ts";
-import React, {useEffect, useState} from "react";
+import {useEffect, useState} from "react";
 import {t} from "@lingui/macro";
-import {Anchor, Button, Select, TextInput} from "@mantine/core";
+import {Anchor, Button, NumberInput, Select, TextInput} from "@mantine/core";
 import {hasLength, useForm} from "@mantine/form";
 import {useCreateEvent} from "../../../mutations/useCreateEvent.ts";
 import {Editor} from "../../common/Editor";
@@ -15,9 +15,16 @@ import {OrganizerCreateForm} from "../../forms/OrganizerForm";
 import dayjs from "dayjs";
 import {DateTimePicker} from "@mantine/dates";
 import {EventCategories} from "../../../constants/eventCategories.ts";
+import {showSuccess} from "../../../utilites/notifications.tsx";
 
 interface CreateEventModalProps extends GenericModalProps {
     organizerId?: IdParam;
+}
+
+interface CreateEventFormValues extends Partial<Event> {
+    repeat_enabled: boolean;
+    repeat_frequency: 'DAILY' | 'WEEKLY';
+    repeat_count: number;
 }
 
 export const CreateEventModal = ({onClose, organizerId}: CreateEventModalProps) => {
@@ -26,7 +33,7 @@ export const CreateEventModal = ({onClose, organizerId}: CreateEventModalProps) 
     const {data: account, isFetched: isAccountFetched} = useGetAccount();
     const organizersQuery = useGetOrganizers();
 
-    const form = useForm<Partial<Event>>({
+    const form = useForm<CreateEventFormValues>({
         initialValues: {
             title: '',
             status: undefined,
@@ -35,6 +42,9 @@ export const CreateEventModal = ({onClose, organizerId}: CreateEventModalProps) 
             description: undefined,
             organizer_id: organizerId ? String(organizerId) : undefined,
             category: undefined,
+            repeat_enabled: false,
+            repeat_frequency: 'DAILY',
+            repeat_count: 1,
         },
         validate: {
             title: hasLength({max: 150}, t`Event name should be less than 150 characters`),
@@ -46,6 +56,11 @@ export const CreateEventModal = ({onClose, organizerId}: CreateEventModalProps) 
             organizer_id: (value) => {
                 if (!value) {
                     return t`Organizer is required`;
+                }
+            },
+            repeat_count: (value, values) => {
+                if (values.repeat_enabled && (!value || value < 1 || value > 60)) {
+                    return t`Occurrences must be between 1 and 60`;
                 }
             },
         },
@@ -83,14 +98,46 @@ export const CreateEventModal = ({onClose, organizerId}: CreateEventModalProps) 
         }
     }, [form.values.organizer_id]);
 
-    const handleCreate = (values: Partial<Event>) => {
-        eventMutation.mutateAsync({
-            eventData: values,
-        }).then((data) => {
-            navigate(`/manage/event/${data.data.id}/getting-started?new_event=true`)
-        }).catch((error) => {
+    const handleCreate = async (values: CreateEventFormValues) => {
+        const {
+            repeat_enabled,
+            repeat_frequency,
+            repeat_count,
+            ...baseEventData
+        } = values;
+
+        try {
+            const firstEvent = await eventMutation.mutateAsync({
+                eventData: baseEventData,
+            });
+
+            const totalOccurrences = repeat_enabled ? repeat_count : 1;
+            if (totalOccurrences > 1) {
+                const dateUnit = repeat_frequency === 'WEEKLY' ? 'week' : 'day';
+
+                for (let occurrenceIndex = 1; occurrenceIndex < totalOccurrences; occurrenceIndex++) {
+                    await eventMutation.mutateAsync({
+                        eventData: {
+                            ...baseEventData,
+                            start_date: baseEventData.start_date
+                                ? dayjs(baseEventData.start_date).add(occurrenceIndex, dateUnit).toISOString()
+                                : undefined,
+                            end_date: baseEventData.end_date
+                                ? dayjs(baseEventData.end_date).add(occurrenceIndex, dateUnit).toISOString()
+                                : undefined,
+                        },
+                    });
+                }
+            }
+
+            if (totalOccurrences > 1) {
+                showSuccess(t`${totalOccurrences} events created successfully`);
+            }
+
+            navigate(`/manage/event/${firstEvent.data.id}/getting-started?new_event=true`)
+        } catch (error) {
             errorHandler(form, error);
-        });
+        }
     }
 
     return (
@@ -220,7 +267,7 @@ export const CreateEventModal = ({onClose, organizerId}: CreateEventModalProps) 
                                         withDropdown: true,
                                     }}
                                     onChange={(value) => {
-                                        form.setFieldValue('start_date', value);
+                                        form.setFieldValue('start_date', value ?? undefined);
 
                                         // Auto-adjust end date if it's before new start date
                                         if (form.values.end_date && value && dayjs(form.values.end_date).isBefore(dayjs(value))) {
@@ -252,6 +299,35 @@ export const CreateEventModal = ({onClose, organizerId}: CreateEventModalProps) 
 
                                 />
                             </div>
+
+                            <Select
+                                label={t`Repeat`}
+                                data={[
+                                    {value: 'NONE', label: t`Does not repeat`},
+                                    {value: 'DAILY', label: t`Daily`},
+                                    {value: 'WEEKLY', label: t`Weekly`},
+                                ]}
+                                value={form.values.repeat_enabled ? form.values.repeat_frequency : 'NONE'}
+                                onChange={(value) => {
+                                    if (!value || value === 'NONE') {
+                                        form.setFieldValue('repeat_enabled', false);
+                                        return;
+                                    }
+                                    form.setFieldValue('repeat_enabled', true);
+                                    form.setFieldValue('repeat_frequency', value as 'DAILY' | 'WEEKLY');
+                                }}
+                            />
+
+                            {form.values.repeat_enabled && (
+                                <NumberInput
+                                    label={t`Number of occurrences`}
+                                    description={t`Includes the first event`}
+                                    min={1}
+                                    max={60}
+                                    value={form.values.repeat_count}
+                                    onChange={(value) => form.setFieldValue('repeat_count', Number(value || 1))}
+                                />
+                            )}
 
                             <Button
                                 loading={eventMutation.isPending}
